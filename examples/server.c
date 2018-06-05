@@ -242,6 +242,7 @@ int socket_setup(int port, int backlog) {
 
 void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int port, int num_workers) {
     int err = 0;
+    int i = 0;
 
     // Set up yolo network for detection
 //    image **alphabet = load_alphabet();
@@ -274,7 +275,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
     pthread_mutex_t accept_lock;
     pthread_mutex_init(&accept_lock, NULL);
 
-    for (int i = 0; i < num_workers; i++) {
+    for (i = 0; i < num_workers; i++) {
         wargs[i].fd = fd;
         wargs[i].tid = i;
         wargs[i].accept_lock = &accept_lock;
@@ -304,7 +305,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
 
     if (batch_size == 1) {
         // avoid copy
-        for (int i = 0; i < batch_size; i++) {
+        for (i = 0; i < batch_size; i++) {
             read_from_image_queue(&batch[i], queue);
 
             if (batch[i].image_id == -1) {
@@ -325,7 +326,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
         batch_im.data = batch[0].im.data;
 
     } else {
-        for (int i = 0; i < batch_size; i++) {
+        for (i = 0; i < batch_size; i++) {
             read_from_image_queue(&batch[i], queue);
 
             if (batch[i].image_id == -1) {
@@ -366,7 +367,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
         // TODO: Extracting boxes for image i > 0 doesn't work yet. Need some hack for yolo detection extraction
         // interface which was apparently designed with batch_size = 1 in mind.
         // The raw output of the final layer is correct, though.
-        for (int i = 0; i < batch_size; i++) {
+        for (i = 0; i < batch_size; i++) {
             image im = { .c = INPUT_C, .h = INPUT_H, .w = INPUT_W, .data = X + i * im_size };
 
             int nboxes = 0;
@@ -383,13 +384,13 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
         }
 
         // Free input images
-        for (int i = 0; i < batch_size; i++) {
+        for (i = 0; i < batch_size; i++) {
             free(batch[i].im.data);
         }
 
         if (batch_size == 1) {
             // avoid copy
-            for (int i = 0; i < batch_size; i++) {
+            for (i = 0; i < batch_size; i++) {
                 read_from_image_queue(&batch[i], queue);
 
                 if (batch[i].image_id == -1) {
@@ -410,7 +411,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
             batch_im.data = batch[0].im.data;
 
         } else {
-            for (int i = 0; i < batch_size; i++) {
+            for (i = 0; i < batch_size; i++) {
                 read_from_image_queue(&batch[i], queue);
 
                 if (batch[i].image_id == -1) {
@@ -435,7 +436,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
     double end_time = what_time_is_it_now();
     printf("Detection for %d workers and %d total images with batch size %d took %f seconds.\n", num_workers, total_images, batch_size, end_time - start_time);
 
-    for (int i = 0; i < num_workers; i++) {
+    for (i = 0; i < num_workers; i++) {
         pthread_join(workers[i], NULL);
     }
 
