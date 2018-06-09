@@ -1,5 +1,7 @@
 #include "darknet.h"
 
+#include "image.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,21 +16,6 @@
 #define QUEUE_SIZE 64
 
 #define INPUT_C 3
-#define INPUT_H 416
-#define INPUT_W 416
-
-// Semaphore to synchronize threads accepting new connections
-//int sem_accept = 0;
-//
-//void sem_up(int sem, int index) {
-//    struct sembuf up = {index, 1, 0};
-//    semop(sem, &up, 1);
-//}
-//
-//void sem_down(int sem, int index) {
-//    struct sembuf down = {index, -1, 0};
-//    semop(sem, &down, 1);
-//}
 
 // Circular queue for images awaiting processing
 
@@ -133,9 +120,9 @@ int read_image_data(int fd, float **X, size_t X_mem_size) {
     return total_bytes_read;
 }
 
-int handle_connection(int fd, int tid, ImageQueue *queue) {
+int handle_connection(int fd, int tid, int input_h, int input_w, ImageQueue *queue) {
     int bytes;
-    size_t X_mem_size = INPUT_C * INPUT_H * INPUT_W * sizeof(float);
+    size_t X_mem_size = INPUT_C * input_h * input_w * sizeof(float);
     float *X = NULL;
 
     int img_id = 0;
@@ -169,7 +156,7 @@ int handle_connection(int fd, int tid, ImageQueue *queue) {
             ClientImage im = {
                     tid,
                     img_id,
-                    { .c = INPUT_C, .h = INPUT_H, .w = INPUT_W, .data = X }
+                    { .c = INPUT_C, .h = input_h, .w = input_w, .data = X }
             };
 
             append_to_image_queue(im, queue);
@@ -182,6 +169,8 @@ int handle_connection(int fd, int tid, ImageQueue *queue) {
 typedef struct {
     int fd;
     int tid;
+    int input_h;
+    int input_w;
     pthread_mutex_t *accept_lock;
     ImageQueue *queue;
 } WorkerArgs;
@@ -209,7 +198,7 @@ void *listen_for_requests(void *args_ptr) {
             perror("Error setting new socket option");
         }
 
-        handle_connection(new_fd, args->tid, args->queue);
+        handle_connection(new_fd, args->tid, args->input_h, args->input_w, args->queue);
         close(new_fd);
 //    }
 
@@ -243,9 +232,10 @@ int socket_setup(int port, int backlog) {
 void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int port, int num_workers) {
     int err = 0;
     int i = 0;
+    int b = 0;
 
     // Set up yolo network for detection
-//    image **alphabet = load_alphabet();
+    image **alphabet = load_alphabet();
     network *net = load_network(cfgfile, weightfile, 0);
     int batch_size = net->batch;
     srand(2222222);
@@ -278,6 +268,8 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
     for (i = 0; i < num_workers; i++) {
         wargs[i].fd = fd;
         wargs[i].tid = i;
+        wargs[i].input_h = net->h;
+        wargs[i].input_w = net->w;
         wargs[i].accept_lock = &accept_lock;
         wargs[i].queue = queue;
         err = pthread_create(&workers[i], NULL, listen_for_requests, (void *) &wargs[i]);
@@ -300,8 +292,7 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
 
     layer l = net->layers[net->n-1];
 
-//    char **names = get_labels("data/coco.names");
-
+    char **names = get_labels("data/coco.names");
 
     if (batch_size == 1) {
         // avoid copy
@@ -347,7 +338,21 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
         }
     }
 
+#ifdef OPENCV
+    char windows[batch_size][5];
+
+    for (b = 0; b < batch_size; b++) {
+        sprintf(windows[b], "%d", b);
+        cvNamedWindow(windows[b], CV_WINDOW_NORMAL);
+        cvMoveWindow(windows[b], b * net->w + 20, 100);
+    }
+#endif
+
     double start_time = what_time_is_it_now();
+    double batch_time = 0;
+    double bps = 0;
+
+    time=what_time_is_it_now();
 
     // Read images from queue and process
     while (!done) {
@@ -355,27 +360,14 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
 
         float *X = batch_im.data;
 
-        // reset to the desired batch_size for detection
-        set_batch_network(net, batch_size);
-        time=what_time_is_it_now();
         network_predict(net, X);
-        printf("Predicted batch of %d in %f seconds.\n", batch_size, what_time_is_it_now()-time);
 
-        // set batch_size = 1 to extract boxes for each input image in the batch
-        set_batch_network(net, 1);
-
-        // TODO: Extracting boxes for image i > 0 doesn't work yet. Need some hack for yolo detection extraction
-        // interface which was apparently designed with batch_size = 1 in mind.
-        // The raw output of the final layer is correct, though.
-        for (i = 0; i < batch_size; i++) {
-            image im = { .c = INPUT_C, .h = INPUT_H, .w = INPUT_W, .data = X + i * im_size };
-
+        for (b = 0; b < batch_size; b++) {
             int nboxes = 0;
-            detection *dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, 0, 1, &nboxes);
+            detection *dets = get_network_boxes(net, batch[b].im.w, batch[b].im.h, thresh, hier_thresh, 0, 1, b, &nboxes);
 //            printf("nboxes: %d\n", nboxes);
-            //if (nms) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
             if (nms) do_nms_sort(dets, nboxes, l.classes, nms);
-//            draw_detections(im, dets, nboxes, thresh, names, alphabet, l.classes);
+            draw_detections(batch[b].im, dets, nboxes, thresh, names, alphabet, l.classes);
 //            for (int k = 0; k < nboxes; k++) {
 //                printf("%d: %f %f %f %f\n", k, dets[k].bbox.x, dets[k].bbox.y, dets[k].bbox.w, dets[k].bbox.h);
 //            }
@@ -383,10 +375,24 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
             free_detections(dets, nboxes);
         }
 
+        batch_time = what_time_is_it_now()-time;
+        bps = 1 / batch_time;
+        printf("\rBatch size: %d\tBPS: %5.3f\t FPS: %5.3f (per client)", batch_size, bps, bps / batch_size);
+        fflush(stdout);
+
+#ifdef OPENCV
+        for (b = 0; b < batch_size; b++) {
+            show_image(batch[b].im, windows[b]);
+        }
+        cvWaitKey(1);
+#endif
+
         // Free input images
         for (i = 0; i < batch_size; i++) {
             free(batch[i].im.data);
         }
+
+        time=what_time_is_it_now();
 
         if (batch_size == 1) {
             // avoid copy
@@ -434,7 +440,12 @@ void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hi
     }
 
     double end_time = what_time_is_it_now();
-    printf("Detection for %d workers and %d total images with batch size %d took %f seconds.\n", num_workers, total_images, batch_size, end_time - start_time);
+    printf("\nDetection for %d workers and %d total images with batch size %d took %f seconds.\n", num_workers, total_images, batch_size, end_time - start_time);
+
+#ifdef OPENCV
+    cvWaitKey(0);
+    cvDestroyAllWindows();
+#endif
 
     for (i = 0; i < num_workers; i++) {
         pthread_join(workers[i], NULL);

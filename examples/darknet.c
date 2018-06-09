@@ -23,7 +23,7 @@ extern void run_super(int argc, char **argv);
 extern void run_lsd(int argc, char **argv);
 
 extern void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int port, int num_workers);
-extern void run_detector_client(char *imgfile, char *host, char *port);
+extern void run_detector_client(char *imgfile, char *host, char *port, int resize, double fps);
 
 void average(int argc, char *argv[])
 {
@@ -507,11 +507,13 @@ int main(int argc, char **argv)
         int num_workers = find_int_arg(argc, argv, "-workers", 1);
         run_detector_server(argv[2], argv[3], thresh, .5, port, num_workers);
     } else if (0 == strcmp(argv[1], "client")) {
-        // usage: ./darknet client <imgfile> <host> <port>
+        // usage: ./darknet client <imgfile> <host> <port> <resize h/w>
         char *imgfile = argv[2];
         char *host = argv[3];
         char *port = argv[4];
-        run_detector_client(imgfile, host, port);
+        int resize = atoi(argv[5]);
+        double fps = atof(argv[6]);
+        run_detector_client(imgfile, host, port, resize, fps);
     } else {
         fprintf(stderr, "Not an option: %s\n", argv[1]);
     }

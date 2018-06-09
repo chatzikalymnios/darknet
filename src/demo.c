@@ -36,7 +36,7 @@ static int demo_done = 0;
 static int demo_total = 0;
 double demo_time;
 
-detection *get_network_boxes(network *net, int w, int h, float thresh, float hier, int *map, int relative, int *num);
+detection *get_network_boxes(network *net, int w, int h, float thresh, float hier, int *map, int relative, int b, int *num);
 
 int size_network(network *net)
 {
@@ -79,7 +79,7 @@ detection *avg_predictions(network *net, int *nboxes)
             count += l.outputs;
         }
     }
-    detection *dets = get_network_boxes(net, buff[0].w, buff[0].h, demo_thresh, demo_hier, 0, 1, nboxes);
+    detection *dets = get_network_boxes(net, buff[0].w, buff[0].h, demo_thresh, demo_hier, 0, 1, 0, nboxes);
     return dets;
 }
 

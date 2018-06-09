@@ -36,7 +36,7 @@ ssize_t writen(int fd, const void *vptr, size_t n) {
     return n;
 }
 
-void run_detector_client(char *imgfile, char *host, char *port) {
+void run_detector_client(char *imgfile, char *host, char *port, int resize, double fps) {
     int fd, err;
     struct addrinfo hints;
     struct addrinfo *servinfo, *p;
@@ -72,13 +72,15 @@ void run_detector_client(char *imgfile, char *host, char *port) {
 
     freeaddrinfo(servinfo);
 
+    double delay = (1 / fps) * 1000000; // usec
+
     if (p) {
         // Send all images and close socket
 
         while (paths->size > 0) {
             char *path = list_pop(paths);
             image im = load_image_color(path,0,0);
-            image sized = letterbox_image(im, RESIZE_W, RESIZE_H);
+            image sized = letterbox_image(im, resize, resize);
 
             int mem_size = sized.c * sized.h * sized.w * sizeof(float);
 
@@ -89,6 +91,7 @@ void run_detector_client(char *imgfile, char *host, char *port) {
             }
 
             printf("%s (%d bytes)\n", path, mem_size);
+            usleep(delay);
         }
 
         shutdown(fd, SHUT_RDWR);
