@@ -24,6 +24,7 @@ extern void run_lsd(int argc, char **argv);
 
 extern void run_detector_server(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int port, int num_workers);
 extern void run_detector_client(char *imgfile, char *host, char *port, int resize, double fps);
+void run_batch_detector(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int batch_size, char **imgfiles, int display);
 
 void average(int argc, char *argv[])
 {
@@ -514,7 +515,12 @@ int main(int argc, char **argv)
         int resize = atoi(argv[5]);
         double fps = atof(argv[6]);
         run_detector_client(imgfile, host, port, resize, fps);
-    } else {
+    } else if (0 == strcmp(argv[1], "batch_detect")) {
+        // usage: ./darknet batch_detect <cfgfile> <weightfile> <batch_size> (imgfiles...) -display -thresh <num>
+        float thresh = find_float_arg(argc, argv, "-thresh", .5);
+        int display = find_arg(argc, argv, "-display");
+        run_batch_detector(argv[2], argv[3], thresh, .5, atoi(argv[4]), &argv[5], display);
+    }  else {
         fprintf(stderr, "Not an option: %s\n", argv[1]);
     }
     return 0;
