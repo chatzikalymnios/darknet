@@ -22,6 +22,11 @@ extern void run_art(int argc, char **argv);
 extern void run_super(int argc, char **argv);
 extern void run_lsd(int argc, char **argv);
 
+extern void run_jetson(char *datacfg, char *cfgfile, char *weightfile, char *imgfile, char *server_hostname, char *server_port, float thresh, int display);
+extern void run_server(char *datacfg, char *cfgfile, char *weightfile, int port, int size, int num_clients, float thresh, float hier_thresh, int partial, int display);
+extern void run_batch_detector(char *datacfg, char *cfgfile, char *weightfile, char *imgfile, float thresh, float hier_thresh, int display);
+extern void run_client(char *imgfile, char *host, char *port, int resize, double fps);
+
 void average(int argc, char *argv[])
 {
     char *cfgfile = argv[2];
@@ -498,6 +503,77 @@ int main(int argc, char **argv)
         mkimg(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), argv[7]);
     } else if (0 == strcmp(argv[1], "imtest")){
         test_resize(argv[2]);
+    } else if (0 == strcmp(argv[1], "jetson")){
+        char *cfgfile = argv[2];        // cfg/yolov3-xxx-jetson.cfg
+        char *weightfile = argv[3];    // weights/yolov3-jetson.weights
+        char *imgfile = argv[4];        // The .list file to draw image paths from.
+
+        // This probably never needs to change
+        char *datacfg = find_char_arg(argc, argv, "-datacfg", "cfg/coco.data");
+
+        // If server hostname and port number are not given, detection will be run entirely locally.
+        // In that case, the complete yolov3 cfg and weights need to be given instead of the "jetson" versions.
+        char *server_hostname = find_char_arg(argc, argv, "-host", 0);
+        char *server_port = find_char_arg(argc, argv, "-port", 0);
+
+        // Whether or not detections should be displayed on screen. Only valid if detection is done entirely locally.
+        // Requires compilation with OpenCV.
+        int display = find_arg(argc, argv, "-display");
+
+        // Again, only valid for entirely local detection.
+        float thresh = find_float_arg(argc, argv, "-thresh", .5);
+
+        run_jetson(datacfg, cfgfile, weightfile, imgfile, server_hostname, server_port, thresh, display);
+    } else if (0 == strcmp(argv[1], "client")){
+        char *imgfile = argv[2];        // The .list file to draw image paths from.
+
+        char *server_hostname = argv[3];
+        char *server_port = argv[4];
+
+        int resize = atoi(argv[5]);
+        double fps = atof(argv[6]); // rate at which to send images
+
+        run_client(imgfile, server_hostname, server_port, resize, fps);
+    } else if (0 == strcmp(argv[1], "server")){
+        char *cfgfile = argv[2];        // cfg/yolov3-xxx-server.cfg
+        char *weightfile = argv[3];    // weights/yolov3-server.weights
+
+        // This probably never needs to change
+        char *datacfg = find_char_arg(argc, argv, "-datacfg", "cfg/coco.data");
+
+        int port = find_int_arg(argc, argv, "-port", 12345);
+
+        // How many clients are going to connect?
+        int num_clients = find_int_arg(argc, argv, "-num_clients", 1);
+
+        // At what size do clients process each image?
+        int size = find_int_arg(argc, argv, "-size", 608);
+
+        // Whether or not detections should be displayed on screen
+        int display = find_arg(argc, argv, "-display");
+
+        // Whether or not clients have preprocessed the image data (partial detection)
+        int partial = find_arg(argc, argv, "-partial");
+
+        // Again, only valid for entirely local detection.
+        float thresh = find_float_arg(argc, argv, "-thresh", .5);
+
+        run_server(datacfg, cfgfile, weightfile, port, size, num_clients, thresh, .5, partial, display);
+    } else if (0 == strcmp(argv[1], "batch")){
+        char *cfgfile = argv[2];        // cfg/yolov3.cfg
+        char *weightfile = argv[3];    // weights/yolov3.weights
+        char *imgfile = argv[4];        // The .list file to draw image paths from.
+
+        // This probably never needs to change
+        char *datacfg = find_char_arg(argc, argv, "-datacfg", "cfg/coco.data");
+
+        // Whether or not detections should be displayed on screen
+        int display = find_arg(argc, argv, "-display");
+
+        // Again, only valid for entirely local detection.
+        float thresh = find_float_arg(argc, argv, "-thresh", .5);
+
+        run_batch_detector(datacfg, cfgfile, weightfile, imgfile, thresh, .5, display);
     } else {
         fprintf(stderr, "Not an option: %s\n", argv[1]);
     }
