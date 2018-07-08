@@ -64,7 +64,7 @@ typedef struct {
 void free_preprocessed_image(void *item) {
     preprocessed_image *im = (preprocessed_image *) item;
 
-    free_image(im->im);
+    //free_image(im->im);
     free(im->preprocessed_data);
 
     free(im);
@@ -243,17 +243,56 @@ typedef struct {
     network *net;
     Queue *image_queue;
     int fd;
+    Queue *out_queue;
 } PartialDetectorArgs;
+
+//void *partial_detector(void *args_ptr) {
+//    PartialDetectorArgs *args = (PartialDetectorArgs *) args_ptr;
+//
+//    loaded_image *input = NULL;
+//    int err = 0;
+//
+//    layer l = args->net->layers[args->net->n - 1];
+//
+//    int input_size = args->net->inputs * sizeof(float);
+//    int prep_size = l.outputs * sizeof(float);
+//
+//    while (1) {
+//        read_from_queue((void **) &input, args->image_queue);
+//
+//        // Check for end of input data
+//        if (!input->im.c) break;
+//
+//        // Send input image (known size)
+//        err = writen(args->fd, input->sized.data, input_size);
+//        if (err < 0) {
+//            perror("Error sending image data");
+//            exit(EXIT_FAILURE);
+//        }
+//
+//        // Preprocess
+//        network_predict(args->net, input->sized.data);
+//
+//        // Send preprocessed data (knows size)
+//        err = writen(args->fd, l.output, prep_size);
+//        if (err < 0) {
+//            perror("Error sending preprocessed data");
+//            exit(EXIT_FAILURE);
+//        }
+//
+//        free_loaded_image(input);
+//    }
+//
+//    pthread_exit(NULL);
+//}
 
 void *partial_detector(void *args_ptr) {
     PartialDetectorArgs *args = (PartialDetectorArgs *) args_ptr;
 
     loaded_image *input = NULL;
-    int err = 0;
 
     layer l = args->net->layers[args->net->n - 1];
 
-    int input_size = args->net->inputs * sizeof(float);
     int prep_size = l.outputs * sizeof(float);
 
     while (1) {
@@ -262,25 +301,24 @@ void *partial_detector(void *args_ptr) {
         // Check for end of input data
         if (!input->im.c) break;
 
-        // Send input image (known size)
-        err = writen(args->fd, input->sized.data, input_size);
-        if (err < 0) {
-            perror("Error sending image data");
-            exit(EXIT_FAILURE);
-        }
-
         // Preprocess
         network_predict(args->net, input->sized.data);
 
-        // Send preprocessed data (knows size)
-        err = writen(args->fd, l.output, prep_size);
-        if (err < 0) {
-            perror("Error sending preprocessed data");
-            exit(EXIT_FAILURE);
-        }
+        preprocessed_image *prep_im = (preprocessed_image *) malloc(sizeof(preprocessed_image));
+        prep_im->im = input->sized;
+        prep_im->preprocessed_data = (float *) malloc(prep_size);
+        memcpy(prep_im->preprocessed_data, l.output, prep_size);
+        prep_im->preprocessed_data_size = prep_size;
+
+        append_to_queue(prep_im, args->out_queue);
 
         free_loaded_image(input);
     }
+
+    preprocessed_image *end_im = (preprocessed_image *) malloc(sizeof(preprocessed_image));
+    end_im->im.c = 0; // signals end
+
+    append_to_queue(end_im, args->out_queue);
 
     pthread_exit(NULL);
 }
@@ -326,6 +364,43 @@ void *printer(void *args_ptr) {
 #ifdef OPENCV
     cvDestroyAllWindows();
 #endif
+
+    pthread_exit(NULL);
+}
+
+typedef struct {
+    int fd;
+    Queue *image_queue;
+} ForwarderArgs;
+
+void *forwarder(void *args_ptr) {
+    ForwarderArgs *args = (ForwarderArgs *) args_ptr;
+
+    preprocessed_image *input = NULL;
+    int err = 0;
+
+    while (1) {
+        read_from_queue((void **) &input, args->image_queue);
+
+        // Check for end of data
+        if (!input->im.c) break;
+
+        // Send input image (known size)
+        err = writen(args->fd, input->im.data, input->im.c * input->im.h * input->im.w * sizeof(float));
+        if (err < 0) {
+            perror("Error sending image data");
+            exit(EXIT_FAILURE);
+        }
+
+        // Send preprocessed data (knows size)
+        err = writen(args->fd, input->preprocessed_data, input->preprocessed_data_size);
+        if (err < 0) {
+            perror("Error sending preprocessed data");
+            exit(EXIT_FAILURE);
+        }
+
+        free_preprocessed_image(input);
+    }
 
     pthread_exit(NULL);
 }
@@ -388,9 +463,10 @@ void run_remote_detection(network *net, list *paths, char *server_hostname, char
         exit(EXIT_FAILURE);
     }
 
-    // Partial Detector - Forwarder
+    // Partial Detector
+    Queue *preprocessed_queue = create_queue(free_preprocessed_image);
     pthread_t partial_detector_thread;
-    PartialDetectorArgs partial_detector_args = { .net = net, .image_queue = image_queue, .fd = fd };
+    PartialDetectorArgs partial_detector_args = { .net = net, .image_queue = image_queue, .fd = fd, .out_queue = preprocessed_queue };
 
     err = pthread_create(&partial_detector_thread, NULL, partial_detector, (void *) &partial_detector_args);
     if (err < 0) {
@@ -398,14 +474,25 @@ void run_remote_detection(network *net, list *paths, char *server_hostname, char
         exit(EXIT_FAILURE);
     }
 
+    // Forwarder
+    pthread_t forwarder_thread;
+    ForwarderArgs forwarder_args = { .fd = fd, .image_queue = preprocessed_queue };
+    err = pthread_create(&forwarder_thread, NULL, forwarder, (void *) &forwarder_args);
+    if (err < 0) {
+        perror("Error creating forwarder thread");
+        exit(EXIT_FAILURE);
+    }
+
     pthread_join(loader_thread, NULL);
     pthread_join(partial_detector_thread, NULL);
+    pthread_join(forwarder_thread, NULL);
 
     double end_time = what_time_is_it_now();
     printf("\nNote: timing includes thread creation overhead\n");
     printf("Preprocessing and sending of %d images took %f seconds\t(%5.3f FPS)\n", paths->size, end_time - start_time, paths->size / (end_time - start_time));
 
     destroy_queue(image_queue);
+    destroy_queue(preprocessed_queue);
 }
 
 void run_local_detection(network *net, list *paths, char *name_list, float thresh, float nms, float hier_thresh, int display) {
