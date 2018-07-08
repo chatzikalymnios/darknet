@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define QUEUE_SIZE 16
+#define QUEUE_SIZE 32
 
 ssize_t writen(int fd, const void *vptr, size_t n) {
     size_t nleft;
@@ -64,7 +64,7 @@ typedef struct {
 void free_preprocessed_image(void *item) {
     preprocessed_image *im = (preprocessed_image *) item;
 
-    //free_image(im->im);
+    free_image(im->im);
     free(im->preprocessed_data);
 
     free(im);
@@ -246,46 +246,6 @@ typedef struct {
     Queue *out_queue;
 } PartialDetectorArgs;
 
-//void *partial_detector(void *args_ptr) {
-//    PartialDetectorArgs *args = (PartialDetectorArgs *) args_ptr;
-//
-//    loaded_image *input = NULL;
-//    int err = 0;
-//
-//    layer l = args->net->layers[args->net->n - 1];
-//
-//    int input_size = args->net->inputs * sizeof(float);
-//    int prep_size = l.outputs * sizeof(float);
-//
-//    while (1) {
-//        read_from_queue((void **) &input, args->image_queue);
-//
-//        // Check for end of input data
-//        if (!input->im.c) break;
-//
-//        // Send input image (known size)
-//        err = writen(args->fd, input->sized.data, input_size);
-//        if (err < 0) {
-//            perror("Error sending image data");
-//            exit(EXIT_FAILURE);
-//        }
-//
-//        // Preprocess
-//        network_predict(args->net, input->sized.data);
-//
-//        // Send preprocessed data (knows size)
-//        err = writen(args->fd, l.output, prep_size);
-//        if (err < 0) {
-//            perror("Error sending preprocessed data");
-//            exit(EXIT_FAILURE);
-//        }
-//
-//        free_loaded_image(input);
-//    }
-//
-//    pthread_exit(NULL);
-//}
-
 void *partial_detector(void *args_ptr) {
     PartialDetectorArgs *args = (PartialDetectorArgs *) args_ptr;
 
@@ -312,7 +272,8 @@ void *partial_detector(void *args_ptr) {
 
         append_to_queue(prep_im, args->out_queue);
 
-        free_loaded_image(input);
+        free_image(input->im);
+        free(input);
     }
 
     preprocessed_image *end_im = (preprocessed_image *) malloc(sizeof(preprocessed_image));
