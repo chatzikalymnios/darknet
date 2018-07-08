@@ -153,7 +153,7 @@ void run_batch_detector(char *datacfg, char *cfgfile, char *weightfile, char *im
     }
 
     double end_time = what_time_is_it_now();
-    printf("\rDetection for %d total images with batch size %d took %f seconds (%5.3f BPS).\n", total_images, batch_size, end_time - start_time, total_images / (end_time - start_time));
+    printf("\rDetection for %d total images with batch size %d took %f seconds (%5.3f BPS).\n", total_images, batch_size, end_time - start_time, (total_images / batch_size) / (end_time - start_time));
 
 #ifdef OPENCV
     if (display) {

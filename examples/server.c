@@ -408,7 +408,7 @@ void run_server(char *datacfg, char *cfgfile, char *weightfile, int port, int si
     }
 
     double end_time = what_time_is_it_now();
-    printf("\rDetection for %d workers and %d total images with batch size %d took %f seconds (%5.3f BPS).\n", num_workers, total_images, batch_size, end_time - start_time, total_images / (end_time - start_time));
+    printf("\rDetection for %d workers and %d total images with batch size %d took %f seconds (%5.3f BPS).\n", num_workers, total_images, batch_size, end_time - start_time, (total_images / batch_size) / (end_time - start_time));
 
     for (i = 0; i < num_workers; i++) {
         pthread_join(workers[i], NULL);
